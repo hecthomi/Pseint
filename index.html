@@ -3317,44 +3317,31 @@ function selloSistema(){
    modulo: texto que describe de dónde salió el archivo. */
 function datosSello(modulo){
   var d=selloAhora(), fh=selloFechaHora(d), filas=[];
-  var pc=SELLO.pc||'', ip=SELLO.ip||'';
+  var pc=SELLO.pc||'', ip=SELLO.ip||'', srv=SELLO.srv||'';
 
-  filas.push(['Fecha',      fh.fecha]);
-  filas.push(['Hora exacta', fh.hora+' (hora:minutos:segundos · '+(SELLO.tz||'America/Bogota')+')']);
-
-  /* Si el reloj del equipo va desfasado, se deja constancia de ambos */
-  var desfase=Math.round((Date.now()-d.getTime())/1000);
-  if(Math.abs(desfase)>90){
-    var fhPc=selloFechaHora(new Date());
-    filas.push(['Reloj del equipo', fhPc.hora+' ('+(desfase>0?'adelantado ':'atrasado ')+
-                Math.abs(Math.round(desfase/60))+' min respecto al servidor)']);
-  }
-
-  filas.push(['Equipo',     pc ? pc+' (nombre en la intranet)' : 'no identificado en la intranet']);
-  filas.push(['Dirección IP', ip||'no disponible']);
-  if(SELLO.mac) filas.push(['Dirección MAC', SELLO.mac]);
-  if(SELLO.srv) filas.push(['Servidor', SELLO.srv]);
-  filas.push(['Navegador',  selloNavegador()+' · '+selloSistema()]);
-
-  var s=window.screen||{};
-  filas.push(['Pantalla', (s.width||'?')+' × '+(s.height||'?')+' px · ventana '+
-              (window.innerWidth||'?')+' × '+(window.innerHeight||'?')+' px · escala '+
-              (window.devicePixelRatio||1)+'×']);
+  filas.push(['Fecha y Hora', fh.fecha+' · '+fh.hora]);
 
   var extra=[];
   extra.push('idioma '+(navigator.language||'?'));
   if(navigator.hardwareConcurrency) extra.push(navigator.hardwareConcurrency+' núcleos');
-  if(navigator.deviceMemory)        extra.push(navigator.deviceMemory+' GB de memoria');
-  extra.push((('ontouchstart' in window)||navigator.maxTouchPoints>0) ? 'pantalla táctil' : 'sin pantalla táctil');
-  filas.push(['Dispositivo', extra.join(' · ')]);
+  if(navigator.deviceMemory)        extra.push(navigator.deviceMemory+' GB');
+  extra.push((('ontouchstart' in window)||navigator.maxTouchPoints>0) ? 'táctil' : 'no táctil');
+  var dispositivo=extra.join(' · ');
 
-  filas.push(['Generado desde', modulo||SELLO.modulo||'Aprende PSeInt']);
-  filas.push(['Código del documento', selloFolio(d)]);
+  filas.push(['Equipo', (pc||'(no identificado)')+' · '+dispositivo]);
+  filas.push(['IP + Servidor', (ip||'no disponible')+(srv ? ' · '+srv : '')]);
+  filas.push(['Navegador', selloNavegador()+' · '+selloSistema()]);
+
+  var s=window.screen||{};
+  filas.push(['Pantalla', (s.width||'?')+' × '+(s.height||'?')+' px '+
+              (window.innerWidth||'?')+' × '+(window.innerHeight||'?')+' · '+
+              (window.devicePixelRatio||1)+'×']);
+
+  filas.push(['Código', selloFolio(d)]);
 
   var enc=[];
   if(SELLO.inst)   enc.push({txt:SELLO.inst, fuerte:true});
   if(SELLO.sede)   enc.push({txt:SELLO.sede});
-  if(SELLO.nit)    enc.push({txt:SELLO.nit});
   if(SELLO.docente)enc.push({txt:'Docente: '+SELLO.docente+
                     (SELLO.area?' · '+SELLO.area:'')+(SELLO.correo?' · '+SELLO.correo:'')});
 
@@ -3389,13 +3376,13 @@ function ventanaImprimible(titulo, cuerpoHtml, sello){
     '.ie{border-bottom:2px solid #4f46e5;padding-bottom:8px;margin-bottom:16px}'+
     '.ie .n{font-size:14px;font-weight:bold;color:#3730a3;letter-spacing:.3px}'+
     '.ie .l{font-size:11.5px;color:#555;margin-top:2px}'+
-    '.sello{margin-top:28px;border-top:1px solid #d1d5db;padding-top:10px;padding-bottom:4px;'+
-      'font-size:11px;page-break-inside:avoid;break-inside:avoid;color:#6b7280}'+
-    '.sello .st{font-size:11px;font-weight:600;color:#64748b;margin-bottom:5px;display:flex;align-items:center}'+
-    '.sello .st::before{content:"📌 ";margin-right:4px}'+
-    '.sello table{border-collapse:collapse;width:100%;font-size:10.5px}'+
-    '.sello td{padding:1px 0;vertical-align:top;color:#6b7280}'+
-    '.sello td.k{width:140px;color:#64748b;font-weight:600;white-space:nowrap;padding-right:8px}'+
+    '.sello{margin-top:16px;border-top:1px solid #e5e7eb;padding-top:6px;padding-bottom:2px;'+
+      'font-size:9px;page-break-inside:avoid;break-inside:avoid;color:#9ca3af}'+
+    '.sello .st{font-size:9px;font-weight:600;color:#9ca3af;margin-bottom:3px;display:flex;align-items:center}'+
+    '.sello .st::before{content:"📌 ";margin-right:3px;font-size:8px}'+
+    '.sello table{border-collapse:collapse;width:100%;font-size:8.5px}'+
+    '.sello td{padding:0.5px 0;vertical-align:top;color:#9ca3af}'+
+    '.sello td.k{width:120px;color:#9ca3af;font-weight:600;white-space:nowrap;padding-right:6px}'+
     '</style></head><body>'+
     '<div class="aviso">Para guardarlo como PDF elige <b>Guardar como PDF</b> en el destino de impresión.</div>'+
     (sello ? encabezadoSelloHtml(sello) : '')+
@@ -3480,8 +3467,8 @@ function pngDeBloques(titulo, subtitulo, bloques, sello){
   var y=pad+10;
   lineas.forEach(function(l){ y+=alturas[l.tipo]||24; l.y=y; });
 
-  /* Espacio reservado abajo para la ficha de generación */
-  var pieAlto = sello ? (22 + 18 + sello.filas.length*15 + 8) : 0;
+  /* Espacio reservado abajo para la ficha de generación (compacto) */
+  var pieAlto = sello ? (14 + 12 + sello.filas.length*11 + 4) : 0;
   cv.width=W; cv.height=Math.max(240, y+pad+18+pieAlto);
 
   /* 3. Fondo, franja del encabezado y paneles de código */
@@ -3532,30 +3519,30 @@ function pngDeBloques(titulo, subtitulo, bloques, sello){
     ctx.font='17px Segoe UI, Arial'; ctx.fillStyle='#1e293b'; ctx.fillText(l.txt, pad, l.y);
   });
 
-  /* 5. Ficha de generación: fecha, hora exacta, IP y datos del equipo */
+  /* 5. Ficha de generación: fecha, hora exacta, IP y datos del equipo (compacta) */
   if(sello){
-    var yb=cv.height-pieAlto+4;
-    ctx.fillStyle='#e5e7eb';
-    ctx.fillRect(pad-12, yb, W-2*(pad-12), 1);  /* línea separadora */
+    var yb=cv.height-pieAlto+2;
+    ctx.fillStyle='#f3f4f6';
+    ctx.fillRect(pad-12, yb, W-2*(pad-12), 1);  /* línea separadora muy sutil */
 
-    var yy=yb+16;
-    ctx.font='bold 11px Segoe UI, Arial'; ctx.fillStyle='#64748b';
-    ctx.fillText('📌 Datos de generación de este documento', pad, yy);
+    var yy=yb+11;
+    ctx.font='600 8px Segoe UI, Arial'; ctx.fillStyle='#a1a5b0';
+    ctx.fillText('📌 Datos de generación', pad, yy);
 
-    var xv=pad+148, anchoV=W-pad-xv;
-    yy+=15;
+    var xv=pad+120, anchoV=W-pad-xv;
+    yy+=10;
     sello.filas.forEach(function(f){
-      ctx.font='600 10.5px Segoe UI, Arial'; ctx.fillStyle='#64748b';
+      ctx.font='600 7.5px Segoe UI, Arial'; ctx.fillStyle='#a1a5b0';
       ctx.fillText(f[0]+':', pad, yy);
-      ctx.font='10.5px Segoe UI, Arial'; ctx.fillStyle='#6b7280';
+      ctx.font='7.5px Segoe UI, Arial'; ctx.fillStyle='#b4b8c3';
       var v=String(f[1]);
       while(v.length>4 && ctx.measureText(v+'…').width>anchoV) v=v.slice(0,-1);
       ctx.fillText(v===String(f[1])?v:v+'…', xv, yy);
-      yy+=15;
+      yy+=11;
     });
   }else{
-    ctx.font='11px Segoe UI, Arial'; ctx.fillStyle='#999';
-    ctx.fillText('Aprende PSeInt · Intranet Escolar', pad, cv.height-12);
+    ctx.font='9px Segoe UI, Arial'; ctx.fillStyle='#bbb';
+    ctx.fillText('Aprende PSeInt · Intranet Escolar', pad, cv.height-10);
   }
   return cv;
 }
@@ -3670,7 +3657,7 @@ document.addEventListener('DOMContentLoaded', function(){
   aplicarTema(leerPref('edu-theme','light'));
   pintarNav();
   pintarCategorias();
-  pintarProgreso(); 
+  pintarProgreso();
   $('simCode').value=SIM_EJEMPLOS[0];
   simSync();
   $('topTitle').textContent='🏠  Bienvenida';
