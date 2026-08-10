@@ -1,3 +1,69 @@
+<?php
+/* ══════════════════════════════════════════════════════════════════════
+   Aprende PSeInt — SELLO DE GENERACIÓN
+   ----------------------------------------------------------------------
+   El PDF y la imagen del SIMULADOR llevan encabezado institucional y una
+   ficha con fecha, hora exacta (h:m:s), IP y datos del equipo donde se
+   generó el archivo.
+
+   Aquí se resuelve solo lo que el navegador NO puede saber:
+     · la IP del cliente,
+     · el nombre del equipo en la intranet (PC-XX, vía pc_sistemas),
+     · la hora del servidor (referencia fiable aunque el reloj del PC del
+       estudiante esté mal puesto).
+   El resto (navegador, sistema, pantalla, idioma…) lo añade el JS en el
+   momento exacto de generar el archivo.
+
+   La conexión se incluye dentro de un búfer y con captura de errores: si
+   la BD no responde, la app sigue funcionando y el sello simplemente
+   queda sin el nombre del PC.
+   ══════════════════════════════════════════════════════════════════════ */
+date_default_timezone_set('America/Bogota');
+
+$PSE_pc  = '';
+$PSE_mac = '';
+$PSE_cnx = __DIR__ . '/../../../estructura_web/conexionbd.php';
+if (is_file($PSE_cnx)) {
+    ob_start();
+    try { include $PSE_cnx; } catch (\Throwable $e) { /* sin BD → sello sin PC */ }
+    ob_end_clean();
+
+    /* conexionbd deja en $Pc_nombre el texto crudo de `arp` cuando el equipo
+       no está en pc_sistemas (p. ej. "o se encontraron "). Solo se acepta un
+       nombre con la forma real PC-XX; lo demás se descarta. */
+    if (!empty($Pc_nombre) && preg_match('/^PC-[A-Za-z0-9]{1,12}$/', $Pc_nombre)) {
+        $PSE_pc = $Pc_nombre;
+    }
+    /* Igual con la MAC: solo si arp devolvió algo con forma de MAC */
+    if (!empty($s_macarp) && preg_match('/^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}$/', trim($s_macarp))) {
+        $PSE_mac = strtoupper(trim($s_macarp));
+    }
+}
+
+$PSE_ip = $_SERVER['REMOTE_ADDR'] ?? '';
+if ($PSE_ip === '::1') $PSE_ip = '127.0.0.1';
+
+$PSE_SELLO = [
+    /* Institución y docente (mismos datos del resto de la intranet) */
+    'inst'    => 'INSTITUCIÓN EDUCATIVA JOSÉ ANTONIO GALÁN',
+    'sede'    => 'Sede San José del Campano · Rabolargo · Cereté (Córdoba)',
+    'docente' => 'Héctor Hoyos Millán',
+    'area'    => 'Área de Tecnología e Informática',
+    'correo'  => 'hahoyosm@iejagalanrbl.edu.co',
+    'modulo'  => 'Aprende PSeInt · Simulador',
+
+    /* Dispositivo y red */
+    'pc'      => $PSE_pc,
+    'mac'     => $PSE_mac,
+    'ip'      => $PSE_ip,
+    'srv'     => ($_SERVER['SERVER_NAME'] ?? 'localhost')
+                 . (isset($_SERVER['SERVER_ADDR']) ? ' (' . $_SERVER['SERVER_ADDR'] . ')' : ''),
+
+    /* Hora del servidor al abrir la página, en milisegundos */
+    'ts'      => (int) round(microtime(true) * 1000),
+    'tz'      => 'America/Bogota',
+];
+?>
 <!DOCTYPE html>
 <html lang="es" data-theme="light">
 <head>
@@ -9,6 +75,11 @@
 /* Tema antes de pintar: evita el parpadeo blanco al abrir en modo oscuro.
    Se usa la misma clave que el resto de la intranet: edu-theme */
 (function(){try{var t=localStorage.getItem('edu-theme');document.documentElement.setAttribute('data-theme',t==='dark'?'dark':'light');}catch(e){}})();
+</script>
+<script>
+/* Datos que solo el servidor conoce (institución, IP, PC-XX, hora real).
+   Los usa el sello del PDF y de la imagen del simulador. */
+var SELLO_SRV = <?php echo json_encode($PSE_SELLO, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP); ?>;
 </script>
 <style>
 /* ============================================================
@@ -3170,8 +3241,128 @@ function simCargar(codigo){
   simLimpiar();
 }
 
+/* ---------- 6.8.0 Sello: quién, dónde y cuándo se generó ----------
+   Se arma en el instante de pulsar PDF o Imagen, así la hora que queda
+   impresa es la de la generación del archivo, no la de abrir la página. */
+var SELLO     = (typeof SELLO_SRV==='object' && SELLO_SRV) ? SELLO_SRV : {};
+var SELLO_T0  = Date.now();
+var SELLO_P0  = (window.performance && performance.now) ? performance.now() : 0;
+
+/* Hora anclada al servidor: al momento del servidor cuando se abrió la
+   página se le suma el tiempo transcurrido. Así la hora impresa es fiable
+   aunque el reloj del computador del estudiante esté mal puesto. */
+function selloAhora(){
+  var base=Number(SELLO.ts)||0;
+  if(!base) return new Date();
+  var trans=(window.performance && performance.now) ? (performance.now()-SELLO_P0) : (Date.now()-SELLO_T0);
+  return new Date(base+trans);
+}
+function selloDosD(n){ return (n<10?'0':'')+n; }
+
+/* Fecha y hora escritas siempre en la zona horaria de Colombia */
+function selloFechaHora(d){
+  var tz=SELLO.tz||'America/Bogota';
+  try{
+    var p={};
+    new Intl.DateTimeFormat('es-CO',{timeZone:tz, weekday:'long', day:'numeric', month:'long',
+      year:'numeric', hour:'2-digit', minute:'2-digit', second:'2-digit', hourCycle:'h23'})
+      .formatToParts(d).forEach(function(x){ p[x.type]=x.value; });
+    return { fecha:p.weekday+', '+p.day+' de '+p.month+' de '+p.year,
+             hora :p.hour+':'+p.minute+':'+p.second };
+  }catch(e){
+    var dias=['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+    var mss=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+    return { fecha:dias[d.getDay()]+', '+d.getDate()+' de '+mss[d.getMonth()]+' de '+d.getFullYear(),
+             hora :selloDosD(d.getHours())+':'+selloDosD(d.getMinutes())+':'+selloDosD(d.getSeconds()) };
+  }
+}
+/* Código único del documento: PSE-AAAAMMDD-HHMMSS-PC */
+function selloFolio(d){
+  var tz=SELLO.tz||'America/Bogota', s;
+  try{
+    var p={};
+    new Intl.DateTimeFormat('en-CA',{timeZone:tz, year:'numeric', month:'2-digit', day:'2-digit',
+      hour:'2-digit', minute:'2-digit', second:'2-digit', hourCycle:'h23'})
+      .formatToParts(d).forEach(function(x){ p[x.type]=x.value; });
+    s=p.year+p.month+p.day+'-'+p.hour+p.minute+p.second;
+  }catch(e){
+    s=d.getFullYear()+selloDosD(d.getMonth()+1)+selloDosD(d.getDate())+'-'+
+      selloDosD(d.getHours())+selloDosD(d.getMinutes())+selloDosD(d.getSeconds());
+  }
+  return 'PSE-'+s+'-'+((String(SELLO.pc||'').replace(/[^A-Za-z0-9]/g,''))||'SN');
+}
+function selloNavegador(){
+  var ua=navigator.userAgent||'', m;
+  if((m=ua.match(/Edg\/(\d+)/)))                    return 'Microsoft Edge '+m[1];
+  if((m=ua.match(/OPR\/(\d+)/)))                    return 'Opera '+m[1];
+  if((m=ua.match(/Firefox\/(\d+)/)))                return 'Mozilla Firefox '+m[1];
+  if((m=ua.match(/Chrome\/(\d+)/)))                 return 'Google Chrome '+m[1];
+  if((m=ua.match(/Version\/(\d+)[.\d]* Safari/)))   return 'Safari '+m[1];
+  return 'Navegador no identificado';
+}
+function selloSistema(){
+  var ua=navigator.userAgent||'', m;
+  if(/Windows NT 10/.test(ua))  return 'Windows 10 u 11';
+  if(/Windows NT 6\.3/.test(ua))return 'Windows 8.1';
+  if(/Windows NT 6\.1/.test(ua))return 'Windows 7';
+  if(/Windows/.test(ua))        return 'Windows';
+  if((m=ua.match(/Android (\d+[\d.]*)/))) return 'Android '+m[1];
+  if(/iPhone|iPad|iPod/.test(ua))return 'iPhone / iPad (iOS)';
+  if(/Mac OS X/.test(ua))       return 'macOS';
+  if(/Linux/.test(ua))          return 'Linux';
+  return navigator.platform||'Sistema no identificado';
+}
+
+/* Devuelve el encabezado institucional y las filas de la ficha técnica.
+   modulo: texto que describe de dónde salió el archivo. */
+function datosSello(modulo){
+  var d=selloAhora(), fh=selloFechaHora(d), filas=[];
+  var pc=SELLO.pc||'', ip=SELLO.ip||'';
+
+  filas.push(['Fecha',      fh.fecha]);
+  filas.push(['Hora exacta', fh.hora+' (hora:minutos:segundos · '+(SELLO.tz||'America/Bogota')+')']);
+
+  /* Si el reloj del equipo va desfasado, se deja constancia de ambos */
+  var desfase=Math.round((Date.now()-d.getTime())/1000);
+  if(Math.abs(desfase)>90){
+    var fhPc=selloFechaHora(new Date());
+    filas.push(['Reloj del equipo', fhPc.hora+' ('+(desfase>0?'adelantado ':'atrasado ')+
+                Math.abs(Math.round(desfase/60))+' min respecto al servidor)']);
+  }
+
+  filas.push(['Equipo',     pc ? pc+' (nombre en la intranet)' : 'no identificado en la intranet']);
+  filas.push(['Dirección IP', ip||'no disponible']);
+  if(SELLO.mac) filas.push(['Dirección MAC', SELLO.mac]);
+  if(SELLO.srv) filas.push(['Servidor', SELLO.srv]);
+  filas.push(['Navegador',  selloNavegador()+' · '+selloSistema()]);
+
+  var s=window.screen||{};
+  filas.push(['Pantalla', (s.width||'?')+' × '+(s.height||'?')+' px · ventana '+
+              (window.innerWidth||'?')+' × '+(window.innerHeight||'?')+' px · escala '+
+              (window.devicePixelRatio||1)+'×']);
+
+  var extra=[];
+  extra.push('idioma '+(navigator.language||'?'));
+  if(navigator.hardwareConcurrency) extra.push(navigator.hardwareConcurrency+' núcleos');
+  if(navigator.deviceMemory)        extra.push(navigator.deviceMemory+' GB de memoria');
+  extra.push((('ontouchstart' in window)||navigator.maxTouchPoints>0) ? 'pantalla táctil' : 'sin pantalla táctil');
+  filas.push(['Dispositivo', extra.join(' · ')]);
+
+  filas.push(['Generado desde', modulo||SELLO.modulo||'Aprende PSeInt']);
+  filas.push(['Código del documento', selloFolio(d)]);
+
+  var enc=[];
+  if(SELLO.inst)   enc.push({txt:SELLO.inst, fuerte:true});
+  if(SELLO.sede)   enc.push({txt:SELLO.sede});
+  if(SELLO.nit)    enc.push({txt:SELLO.nit});
+  if(SELLO.docente)enc.push({txt:'Docente: '+SELLO.docente+
+                    (SELLO.area?' · '+SELLO.area:'')+(SELLO.correo?' · '+SELLO.correo:'')});
+
+  return {enc:enc, filas:filas};
+}
+
 /* ---------- 6.8.1 Compartir: PDF e imagen ---------- */
-function ventanaImprimible(titulo, cuerpoHtml){
+function ventanaImprimible(titulo, cuerpoHtml, sello){
   var w=window.open('','_blank');
   if(!w){ alert('El navegador bloqueó la ventana. Permite las ventanas emergentes para generar el PDF.'); return; }
   w.document.write('<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>'+esc(titulo)+'</title><style>'+
@@ -3194,13 +3385,40 @@ function ventanaImprimible(titulo, cuerpoHtml){
     '.pie{margin-top:22px;font-size:11px;color:#666;border-top:1px solid #ccc;padding-top:7px}'+
     '@media print{.aviso{display:none}}'+
     '.aviso{background:#eef2ff;border:1px solid #c7d2fe;border-radius:7px;padding:9px 12px;font-size:12.5px;margin-bottom:14px}'+
+    /* encabezado institucional y ficha de generación */
+    '.ie{border-bottom:2px solid #4f46e5;padding-bottom:8px;margin-bottom:16px}'+
+    '.ie .n{font-size:14px;font-weight:bold;color:#3730a3;letter-spacing:.3px}'+
+    '.ie .l{font-size:11.5px;color:#555;margin-top:2px}'+
+    '.sello{margin-top:28px;border-top:1px solid #d1d5db;padding-top:10px;padding-bottom:4px;'+
+      'font-size:11px;page-break-inside:avoid;break-inside:avoid;color:#6b7280}'+
+    '.sello .st{font-size:11px;font-weight:600;color:#64748b;margin-bottom:5px;display:flex;align-items:center}'+
+    '.sello .st::before{content:"📌 ";margin-right:4px}'+
+    '.sello table{border-collapse:collapse;width:100%;font-size:10.5px}'+
+    '.sello td{padding:1px 0;vertical-align:top;color:#6b7280}'+
+    '.sello td.k{width:140px;color:#64748b;font-weight:600;white-space:nowrap;padding-right:8px}'+
     '</style></head><body>'+
     '<div class="aviso">Para guardarlo como PDF elige <b>Guardar como PDF</b> en el destino de impresión.</div>'+
+    (sello ? encabezadoSelloHtml(sello) : '')+
     cuerpoHtml+
+    (sello ? fichaSelloHtml(sello) : '')+
     '<div class="pie">Aprende PSeInt · Intranet Escolar · '+new Date().toLocaleDateString('es-CO')+'</div>'+
     '</body></html>');
   w.document.close();
   setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} }, 350);
+}
+
+/* Encabezado institucional de la ventana de impresión */
+function encabezadoSelloHtml(sello){
+  return '<div class="ie">'+sello.enc.map(function(l){
+    return '<div class="'+(l.fuerte?'n':'l')+'">'+esc(l.txt)+'</div>';
+  }).join('')+'</div>';
+}
+/* Ficha con la fecha, la hora exacta, la IP y los datos del equipo */
+function fichaSelloHtml(sello){
+  return '<div class="sello"><div class="st">Datos de generación de este documento</div><table>'+
+    sello.filas.map(function(f){
+      return '<tr><td class="k">'+esc(f[0])+'</td><td>'+esc(f[1])+'</td></tr>';
+    }).join('')+'</table></div>';
 }
 
 /* Código coloreado y numerado para la ventana de impresión */
@@ -3214,7 +3432,7 @@ function codigoHtmlNumerado(code){
 }
 
 /* Dibuja el contenido en un canvas y devuelve el PNG (sin librerias externas) */
-function pngDeBloques(titulo, subtitulo, bloques){
+function pngDeBloques(titulo, subtitulo, bloques, sello){
   var W=1000, pad=34, lineas=[];
   var cv=document.createElement('canvas'), ctx=cv.getContext('2d');
   var FUENTE_COD='15px Consolas, "Courier New", monospace';
@@ -3237,6 +3455,7 @@ function pngDeBloques(titulo, subtitulo, bloques){
   }
 
   /* 1. Renglones con su estilo (el código conserva su numeración) */
+  if(sello) sello.enc.forEach(function(l){ lineas.push({tipo:(l.fuerte?'ieb':'ie'), txt:l.txt}); });
   lineas.push({tipo:'h1', txt:titulo});
   if(subtitulo) lineas.push({tipo:'sub', txt:subtitulo});
   bloques.forEach(function(b){
@@ -3257,10 +3476,13 @@ function pngDeBloques(titulo, subtitulo, bloques){
   });
 
   /* 2. Altura y posición de cada renglón */
-  var alturas={h1:38, sub:26, h2:34, p:26, code:23, out:23, sep:14};
+  var alturas={h1:38, sub:26, h2:34, p:26, code:23, out:23, sep:14, ieb:22, ie:18};
   var y=pad+10;
   lineas.forEach(function(l){ y+=alturas[l.tipo]||24; l.y=y; });
-  cv.width=W; cv.height=Math.max(240, y+pad+18);
+
+  /* Espacio reservado abajo para la ficha de generación */
+  var pieAlto = sello ? (22 + 18 + sello.filas.length*15 + 8) : 0;
+  cv.width=W; cv.height=Math.max(240, y+pad+18+pieAlto);
 
   /* 3. Fondo, franja del encabezado y paneles de código */
   ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,W,cv.height);
@@ -3287,6 +3509,8 @@ function pngDeBloques(titulo, subtitulo, bloques){
   /* 4. Texto */
   lineas.forEach(function(l){
     if(l.tipo==='sep') return;
+    if(l.tipo==='ieb'){ ctx.font='bold 15px Segoe UI, Arial'; ctx.fillStyle='#3730a3'; ctx.fillText(l.txt, pad, l.y); return; }
+    if(l.tipo==='ie'){ ctx.font='12.5px Segoe UI, Arial'; ctx.fillStyle='#64748b'; ctx.fillText(l.txt, pad, l.y); return; }
     if(l.tipo==='h1'){ ctx.font='bold 26px Segoe UI, Arial'; ctx.fillStyle='#3730a3'; ctx.fillText(l.txt, pad, l.y); return; }
     if(l.tipo==='sub'){ ctx.font='15px Segoe UI, Arial'; ctx.fillStyle='#555'; ctx.fillText(l.txt, pad, l.y); return; }
     if(l.tipo==='h2'){ ctx.font='bold 18px Segoe UI, Arial'; ctx.fillStyle='#3730a3'; ctx.fillText(l.txt, pad, l.y); return; }
@@ -3308,8 +3532,31 @@ function pngDeBloques(titulo, subtitulo, bloques){
     ctx.font='17px Segoe UI, Arial'; ctx.fillStyle='#1e293b'; ctx.fillText(l.txt, pad, l.y);
   });
 
-  ctx.font='13px Segoe UI, Arial'; ctx.fillStyle='#777';
-  ctx.fillText('Aprende PSeInt · Intranet Escolar', pad, cv.height-14);
+  /* 5. Ficha de generación: fecha, hora exacta, IP y datos del equipo */
+  if(sello){
+    var yb=cv.height-pieAlto+4;
+    ctx.fillStyle='#e5e7eb';
+    ctx.fillRect(pad-12, yb, W-2*(pad-12), 1);  /* línea separadora */
+
+    var yy=yb+16;
+    ctx.font='bold 11px Segoe UI, Arial'; ctx.fillStyle='#64748b';
+    ctx.fillText('📌 Datos de generación de este documento', pad, yy);
+
+    var xv=pad+148, anchoV=W-pad-xv;
+    yy+=15;
+    sello.filas.forEach(function(f){
+      ctx.font='600 10.5px Segoe UI, Arial'; ctx.fillStyle='#64748b';
+      ctx.fillText(f[0]+':', pad, yy);
+      ctx.font='10.5px Segoe UI, Arial'; ctx.fillStyle='#6b7280';
+      var v=String(f[1]);
+      while(v.length>4 && ctx.measureText(v+'…').width>anchoV) v=v.slice(0,-1);
+      ctx.fillText(v===String(f[1])?v:v+'…', xv, yy);
+      yy+=15;
+    });
+  }else{
+    ctx.font='11px Segoe UI, Arial'; ctx.fillStyle='#999';
+    ctx.fillText('Aprende PSeInt · Intranet Escolar', pad, cv.height-12);
+  }
   return cv;
 }
 function compartirPng(cv, nombre, texto){
@@ -3335,17 +3582,19 @@ function nombreArchivo(base){
 }
 function pdfSimulador(){
   var cod=$('simCode').value, sal=consolaTexto('simOut');
+  var s=datosSello('Aprende PSeInt · Simulador (botón PDF)');
   ventanaImprimible('Algoritmo PSeInt',
     '<h1>Algoritmo en PSeInt</h1><div class="meta">Hecho en el simulador de Aprende PSeInt</div>'+
     '<h2>Algoritmo</h2><pre>'+codigoHtmlNumerado(cod)+'</pre>'+
-    (sal? '<h2>Salida de la ejecución</h2><pre class="out">'+esc(sal)+'</pre>' : ''));
+    (sal? '<h2>Salida de la ejecución</h2><pre class="out">'+esc(sal)+'</pre>' : ''), s);
 }
 function imgSimulador(){
   var cod=$('simCode').value, sal=consolaTexto('simOut');
+  var s=datosSello('Aprende PSeInt · Simulador (botón Imagen)');
   var b=[{t:'code', h:'Algoritmo', txt:cod}];
   if(sal) b.push({t:'out', h:'Salida', txt:sal});
-  compartirPng(pngDeBloques('Algoritmo en PSeInt','Hecho en el simulador de Aprende PSeInt', b),
-    'algoritmo_pseint.png', 'Mi algoritmo en PSeInt');
+  compartirPng(pngDeBloques('Algoritmo en PSeInt','Hecho en el simulador de Aprende PSeInt', b, s),
+    nombreArchivo('algoritmo_pseint_'+selloFolio(selloAhora()))+'.png', 'Mi algoritmo en PSeInt');
 }
 function waSimulador(){
   var cod=$('simCode').value, sal=consolaTexto('simOut');
