@@ -173,6 +173,7 @@ img{max-width:100%}
 .btn-primary{background:var(--primary);color:var(--primary-ink);border-color:var(--primary)}
 .btn-ok{background:var(--accent);color:#04231a;border-color:var(--accent)}
 .btn-sm{padding:6px 10px;font-size:13px;min-height:34px}
+.btn-xs{padding:3px 7px;font-size:12.5px;min-height:28px;border-radius:7px;gap:4px}
 .icon-btn{
   width:40px;height:40px;flex:0 0 40px;border-radius:9px;
   border:1px solid var(--border);background:var(--surface-2);color:var(--text);
@@ -349,10 +350,12 @@ code.inline{
 .editor textarea:focus{outline:2px solid var(--primary);outline-offset:-2px}
 .editor textarea::selection{background:rgba(124,140,255,.35);color:transparent}
 .editor-bar{
-  display:flex;align-items:center;gap:8px;flex-wrap:wrap;
-  padding:7px 10px;background:var(--surface-2);border-bottom:1px solid var(--border);
+  display:flex;align-items:center;gap:5px;flex-wrap:wrap;
+  padding:6px 7px;background:var(--surface-2);border-bottom:1px solid var(--border);
 }
-.editor-bar .et{font-size:12.5px;font-weight:700;color:var(--muted);flex:1;min-width:110px}
+.editor-bar .et-sp{flex:1 1 auto;min-width:0}
+/* Los dos paneles del simulador se pueden agrandar arrastrando la esquina */
+#simOut{height:340px;max-height:none;min-height:140px;resize:vertical}
 
 /* ============================================================
    TABLAS
@@ -684,7 +687,6 @@ table.tbl td code{font-family:'Consolas','Monaco',monospace;font-size:.93em}
                   <button class="btn btn-xs" onclick="simLimpiar()">🧽 Limpiar</button>
                   <button class="btn btn-xs" onclick="simNuevo()">📄 Nuevo</button>
                   <button class="btn btn-xs" onclick="simEjemplo()">🎲 Ejemplo</button>
-                  <span class="et-sp"></span>
                   <button class="btn btn-xs" onclick="simIndentar()" title="Ordenar la sangría del algoritmo">↹ Indentar</button>
                 </div>
                 <div class="editor-body">
@@ -694,12 +696,7 @@ table.tbl td code{font-family:'Consolas','Monaco',monospace;font-size:.93em}
                             onkeydown="simTecla(event)"></textarea>
                 </div>
               </div>
-              <div class="row-btn">
-                <button class="btn btn-primary" onclick="simEjecutar()">▶️ Ejecutar</button>
-                <button class="btn" onclick="simLimpiar()">🧽 Limpiar salida</button>
-                <button class="btn" onclick="simEjemplo()">🎲 Cargar ejemplo</button>
-                <button class="btn" onclick="simNuevo()">📄 Nuevo</button>
-              </div>
+              <p class="small">Puedes arrastrar la esquina inferior derecha de cada panel para agrandarlo o achicarlo.</p>
             </div>
             <div>
               <label>Salida (aquí también se digitan los datos)</label>
@@ -785,39 +782,51 @@ FUNCIONES.forEach(function(w){SET_FUN[w]=1;});
 
 var RE_INI=/[A-Za-z_ÁÉÍÓÚÜÑáéíóúüñ]/, RE_ID=/[A-Za-z0-9_ÁÉÍÓÚÜÑáéíóúüñ]/;
 
-function resaltar(code){
-  var s=String(code||''), out='', i=0, n=s.length;
+/* Parte un renglón en trozos con su color: [{t:'kw'|'str'|'num'|'cmt'|'fn'|'op'|'', s:'…'}]
+   Se usa tanto para el HTML como para dibujar el PNG con los mismos colores. */
+function tokenizar(linea){
+  var s=String(linea||''), out=[], i=0, n=s.length;
+  function add(t, txt){
+    if(txt==='') return;
+    var u=out[out.length-1];
+    if(u && u.t===t) u.s+=txt; else out.push({t:t, s:txt});
+  }
   while(i<n){
     var c=s.charAt(i);
-    if(c==='/' && s.charAt(i+1)==='/'){
-      var j=s.indexOf('\n',i); if(j<0) j=n;
-      out+='<span class="t-cmt">'+esc(s.slice(i,j))+'</span>'; i=j; continue;
-    }
+    if(c==='/' && s.charAt(i+1)==='/'){ add('cmt', s.slice(i)); break; }
     if(c==='"' || c==="'"){
       var q=c, j2=i+1;
       while(j2<n && s.charAt(j2)!==q) j2++;
       j2=Math.min(j2+1,n);
-      out+='<span class="t-str">'+esc(s.slice(i,j2))+'</span>'; i=j2; continue;
+      add('str', s.slice(i,j2)); i=j2; continue;
     }
     if(c>='0' && c<='9'){
       var j3=i; while(j3<n && /[0-9.]/.test(s.charAt(j3))) j3++;
-      out+='<span class="t-num">'+s.slice(i,j3)+'</span>'; i=j3; continue;
+      add('num', s.slice(i,j3)); i=j3; continue;
     }
     if(RE_INI.test(c)){
       var j4=i; while(j4<n && RE_ID.test(s.charAt(j4))) j4++;
       var w=s.slice(i,j4), lw=w.toLowerCase();
-      if(SET_PAL[lw]) out+='<span class="t-kw">'+esc(w)+'</span>';
-      else if(SET_FUN[lw]) out+='<span class="t-fn">'+esc(w)+'</span>';
-      else out+=esc(w);
+      add(SET_PAL[lw] ? 'kw' : (SET_FUN[lw] ? 'fn' : ''), w);
       i=j4; continue;
     }
-    if(c==='<' && s.charAt(i+1)==='-'){ out+='<span class="t-op">&lt;-</span>'; i+=2; continue; }
-    if(c==='←'){ out+='<span class="t-op">←</span>'; i++; continue; }
-    if('+-*/^%<>='.indexOf(c)>=0){ out+='<span class="t-op">'+esc(c)+'</span>'; i++; continue; }
-    out+=esc(c); i++;
+    if(c==='<' && s.charAt(i+1)==='-'){ add('op','<-'); i+=2; continue; }
+    if(c==='←'){ add('op','←'); i++; continue; }
+    if('+-*/^%<>='.indexOf(c)>=0){ add('op', c); i++; continue; }
+    add('', c); i++;
   }
   return out;
 }
+function resaltarLinea(linea){
+  return tokenizar(linea).map(function(k){
+    return k.t ? '<span class="t-'+k.t+'">'+esc(k.s)+'</span>' : esc(k.s);
+  }).join('');
+}
+function resaltar(code){
+  return String(code||'').split('\n').map(resaltarLinea).join('\n');
+}
+/* Paleta de PSeInt, igual en la app, en el PDF y en la imagen */
+var COLOR_PSE={kw:'#4338ca', str:'#b45309', num:'#be123c', cmt:'#047857', fn:'#0e7490', op:'#7c3aed', '':'#1e293b'};
 
 /* Columna con el número de cada renglón, igual que el editor de PSeInt */
 function numeros(cantidad){
@@ -3173,6 +3182,14 @@ function ventanaImprimible(titulo, cuerpoHtml){
     'pre{background:#f4f6fb;border:1px solid #ccd;border-radius:7px;padding:11px 13px;'+
       'font-family:Consolas,monospace;font-size:12.5px;white-space:pre-wrap;margin:0 0 12px}'+
     'pre.out{background:#111827;color:#e5e7eb;border-color:#111}'+
+    /* mismos colores del editor de PSeInt */
+    '.t-kw{color:'+COLOR_PSE.kw+';font-weight:bold}'+
+    '.t-str{color:'+COLOR_PSE.str+'}'+
+    '.t-num{color:'+COLOR_PSE.num+'}'+
+    '.t-cmt{color:'+COLOR_PSE.cmt+';font-style:italic}'+
+    '.t-fn{color:'+COLOR_PSE.fn+';font-weight:600}'+
+    '.t-op{color:'+COLOR_PSE.op+';font-weight:bold}'+
+    '.ln{color:#94a3b8}'+
     '.enun{background:#fffbea;border:1px solid #f0dca0;border-radius:7px;padding:10px 12px;margin:0 0 12px}'+
     '.pie{margin-top:22px;font-size:11px;color:#666;border-top:1px solid #ccc;padding-top:7px}'+
     '@media print{.aviso{display:none}}'+
@@ -3186,11 +3203,24 @@ function ventanaImprimible(titulo, cuerpoHtml){
   setTimeout(function(){ try{ w.focus(); w.print(); }catch(e){} }, 350);
 }
 
+/* Código coloreado y numerado para la ventana de impresión */
+function codigoHtmlNumerado(code){
+  var ls=String(code).split('\n'), ancho=String(ls.length).length, out='';
+  ls.forEach(function(l,i){
+    var n=String(i+1); while(n.length<ancho) n=' '+n;
+    out+='<span class="ln">'+n+'  </span>'+resaltarLinea(l)+(i<ls.length-1?'\n':'');
+  });
+  return out;
+}
+
 /* Dibuja el contenido en un canvas y devuelve el PNG (sin librerias externas) */
 function pngDeBloques(titulo, subtitulo, bloques){
-  var W=1000, pad=34, y=0, lineas=[];
+  var W=1000, pad=34, lineas=[];
   var cv=document.createElement('canvas'), ctx=cv.getContext('2d');
-  function medirEnvuelto(txt, fuente, ancho){
+  var FUENTE_COD='15px Consolas, "Courier New", monospace';
+  var FUENTE_COD_B='bold 15px Consolas, "Courier New", monospace';
+
+  function envolver(txt, fuente, ancho){
     ctx.font=fuente;
     var out=[];
     String(txt).split('\n').forEach(function(par){
@@ -3205,37 +3235,79 @@ function pngDeBloques(titulo, subtitulo, bloques){
     });
     return out;
   }
-  /* 1. Preparar la lista de renglones con su estilo */
+
+  /* 1. Renglones con su estilo (el código conserva su numeración) */
   lineas.push({tipo:'h1', txt:titulo});
   if(subtitulo) lineas.push({tipo:'sub', txt:subtitulo});
   bloques.forEach(function(b){
-    if(!b.txt && b.txt!=='') return;
+    if(b.txt===undefined || b.txt===null) return;
     if(b.h) lineas.push({tipo:'h2', txt:b.h});
-    var fuente = (b.t==='code'||b.t==='out') ? '15px Consolas, monospace' : '17px Segoe UI, Arial';
-    var envueltas = medirEnvuelto(b.txt, fuente, W-2*pad-24);
-    envueltas.forEach(function(l){ lineas.push({tipo:b.t||'p', txt:l}); });
+    if(b.t==='code'){
+      String(b.txt).split('\n').forEach(function(l, i){
+        envolver(l, FUENTE_COD, W-2*pad-70).forEach(function(trozo, k){
+          lineas.push({tipo:'code', txt:trozo, num:(k===0?i+1:null)});
+        });
+      });
+    }else if(b.t==='out'){
+      envolver(b.txt, FUENTE_COD, W-2*pad-30).forEach(function(l){ lineas.push({tipo:'out', txt:l}); });
+    }else{
+      envolver(b.txt, '17px Segoe UI, Arial', W-2*pad-10).forEach(function(l){ lineas.push({tipo:'p', txt:l}); });
+    }
     lineas.push({tipo:'sep'});
   });
-  /* 2. Calcular la altura */
-  var alturas={h1:38, sub:26, h2:32, p:26, code:23, out:23, sep:12};
-  var H=pad*2+30;
-  lineas.forEach(function(l){ H+=alturas[l.tipo]||24; });
-  cv.width=W; cv.height=Math.max(260,H);
-  /* 3. Pintar */
+
+  /* 2. Altura y posición de cada renglón */
+  var alturas={h1:38, sub:26, h2:34, p:26, code:23, out:23, sep:14};
+  var y=pad+10;
+  lineas.forEach(function(l){ y+=alturas[l.tipo]||24; l.y=y; });
+  cv.width=W; cv.height=Math.max(240, y+pad+18);
+
+  /* 3. Fondo, franja del encabezado y paneles de código */
   ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,W,cv.height);
   ctx.fillStyle='#4f46e5'; ctx.fillRect(0,0,W,7);
-  y=pad+16;
+  var i0=0;
+  while(i0<lineas.length){
+    var t=lineas[i0].tipo;
+    if(t==='code'||t==='out'){
+      var j=i0; while(j+1<lineas.length && lineas[j+1].tipo===t) j++;
+      var y1=lineas[i0].y-alturas[t]+4, y2=lineas[j].y+7;
+      ctx.fillStyle = (t==='code') ? '#f1f5f9' : '#0f172a';
+      ctx.strokeStyle = (t==='code') ? '#dbe2ec' : '#0f172a';
+      ctx.beginPath();
+      ctx.rect(pad-12, y1, W-2*(pad-12), y2-y1);
+      ctx.fill(); ctx.stroke();
+      if(t==='code'){                       /* franja de los números */
+        ctx.fillStyle='#e6ebf3';
+        ctx.fillRect(pad-12, y1, 44, y2-y1);
+      }
+      i0=j+1;
+    } else i0++;
+  }
+
+  /* 4. Texto */
   lineas.forEach(function(l){
-    if(l.tipo==='sep'){ y+=alturas.sep; return; }
-    if(l.tipo==='h1'){ ctx.font='bold 26px Segoe UI, Arial'; ctx.fillStyle='#3730a3'; }
-    else if(l.tipo==='sub'){ ctx.font='15px Segoe UI, Arial'; ctx.fillStyle='#555'; }
-    else if(l.tipo==='h2'){ ctx.font='bold 18px Segoe UI, Arial'; ctx.fillStyle='#3730a3'; }
-    else if(l.tipo==='code'){ ctx.font='15px Consolas, monospace'; ctx.fillStyle='#1e293b'; }
-    else if(l.tipo==='out'){ ctx.font='15px Consolas, monospace'; ctx.fillStyle='#0f766e'; }
-    else { ctx.font='17px Segoe UI, Arial'; ctx.fillStyle='#1e293b'; }
-    y+=alturas[l.tipo]||24;
-    ctx.fillText(l.txt, pad, y);
+    if(l.tipo==='sep') return;
+    if(l.tipo==='h1'){ ctx.font='bold 26px Segoe UI, Arial'; ctx.fillStyle='#3730a3'; ctx.fillText(l.txt, pad, l.y); return; }
+    if(l.tipo==='sub'){ ctx.font='15px Segoe UI, Arial'; ctx.fillStyle='#555'; ctx.fillText(l.txt, pad, l.y); return; }
+    if(l.tipo==='h2'){ ctx.font='bold 18px Segoe UI, Arial'; ctx.fillStyle='#3730a3'; ctx.fillText(l.txt, pad, l.y); return; }
+    if(l.tipo==='out'){ ctx.font=FUENTE_COD; ctx.fillStyle='#86efac'; ctx.fillText(l.txt, pad, l.y); return; }
+    if(l.tipo==='code'){
+      if(l.num!==null && l.num!==undefined){
+        ctx.font=FUENTE_COD; ctx.fillStyle='#94a3b8';
+        ctx.textAlign='right'; ctx.fillText(String(l.num), pad+22, l.y); ctx.textAlign='left';
+      }
+      var x=pad+34;
+      tokenizar(l.txt).forEach(function(k){          /* colores de PSeInt */
+        ctx.font = (k.t==='kw'||k.t==='op'||k.t==='fn') ? FUENTE_COD_B : FUENTE_COD;
+        ctx.fillStyle = COLOR_PSE[k.t] || COLOR_PSE[''];
+        ctx.fillText(k.s, x, l.y);
+        x += ctx.measureText(k.s).width;
+      });
+      return;
+    }
+    ctx.font='17px Segoe UI, Arial'; ctx.fillStyle='#1e293b'; ctx.fillText(l.txt, pad, l.y);
   });
+
   ctx.font='13px Segoe UI, Arial'; ctx.fillStyle='#777';
   ctx.fillText('Aprende PSeInt · Intranet Escolar', pad, cv.height-14);
   return cv;
@@ -3265,7 +3337,7 @@ function pdfSimulador(){
   var cod=$('simCode').value, sal=consolaTexto('simOut');
   ventanaImprimible('Algoritmo PSeInt',
     '<h1>Algoritmo en PSeInt</h1><div class="meta">Hecho en el simulador de Aprende PSeInt</div>'+
-    '<h2>Algoritmo</h2><pre>'+esc(cod)+'</pre>'+
+    '<h2>Algoritmo</h2><pre>'+codigoHtmlNumerado(cod)+'</pre>'+
     (sal? '<h2>Salida de la ejecución</h2><pre class="out">'+esc(sal)+'</pre>' : ''));
 }
 function imgSimulador(){
@@ -3293,7 +3365,7 @@ function pdfEjercicio(i){
     '<div class="meta">'+esc(d.c.nombre)+' · ejercicio '+d.n+' · nivel '+d.nivel+'</div>'+
     '<h2>Enunciado</h2><div class="enun">'+esc(d.e.e)+'</div>'+
     (d.e.p?'<h2>Pista</h2><div class="enun">'+esc(d.e.p)+'</div>':'')+
-    '<h2>Solución en PSeInt</h2><pre>'+esc(d.e.s)+'</pre>'+
+    '<h2>Solución en PSeInt</h2><pre>'+codigoHtmlNumerado(d.e.s)+'</pre>'+
     (d.e.in?'<h2>Datos de prueba</h2><pre>'+esc(String(d.e.in))+'</pre>':''));
 }
 function imgEjercicio(i){
