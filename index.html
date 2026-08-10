@@ -17,6 +17,13 @@
    La conexión se incluye dentro de un búfer y con captura de errores: si
    la BD no responde, la app sigue funcionando y el sello simplemente
    queda sin el nombre del PC.
+
+   IMPORTANTE (hosting estático, p. ej. GitHub Pages): este bloque se
+   escribe SIN el carácter "mayor que" (solo aparece en el cierre final).
+   Así, cuando el archivo se sirve como estático y PHP no se ejecuta, el
+   navegador lo trata como un comentario y lo oculta por completo, en vez
+   de mostrar el código en la parte superior de la página. Por eso el
+   arreglo se arma con array_combine y NO con la sintaxis de flecha.
    ══════════════════════════════════════════════════════════════════════ */
 date_default_timezone_set('America/Bogota');
 
@@ -25,7 +32,7 @@ $PSE_mac = '';
 $PSE_cnx = __DIR__ . '/../../../estructura_web/conexionbd.php';
 if (is_file($PSE_cnx)) {
     ob_start();
-    try { include $PSE_cnx; } catch (\Throwable $e) { /* sin BD → sello sin PC */ }
+    try { include $PSE_cnx; } catch (\Throwable $e) { /* sin BD: sello sin PC */ }
     ob_end_clean();
 
     /* conexionbd deja en $Pc_nombre el texto crudo de `arp` cuando el equipo
@@ -43,26 +50,29 @@ if (is_file($PSE_cnx)) {
 $PSE_ip = $_SERVER['REMOTE_ADDR'] ?? '';
 if ($PSE_ip === '::1') $PSE_ip = '127.0.0.1';
 
-$PSE_SELLO = [
-    /* Institución y docente (mismos datos del resto de la intranet) */
-    'inst'    => 'INSTITUCIÓN EDUCATIVA JOSÉ ANTONIO GALÁN',
-    'sede'    => 'Sede San José del Campano · Rabolargo · Cereté (Córdoba)',
-    'docente' => 'Héctor Hoyos Millán',
-    'area'    => 'Área de Tecnología e Informática',
-    'correo'  => 'hahoyosm@iejagalanrbl.edu.co',
-    'modulo'  => 'Aprende PSeInt · Simulador',
+$PSE_srv = ($_SERVER['SERVER_NAME'] ?? 'localhost');
+if (isset($_SERVER['SERVER_ADDR'])) $PSE_srv .= ' (' . $_SERVER['SERVER_ADDR'] . ')';
 
-    /* Dispositivo y red */
-    'pc'      => $PSE_pc,
-    'mac'     => $PSE_mac,
-    'ip'      => $PSE_ip,
-    'srv'     => ($_SERVER['SERVER_NAME'] ?? 'localhost')
-                 . (isset($_SERVER['SERVER_ADDR']) ? ' (' . $_SERVER['SERVER_ADDR'] . ')' : ''),
-
-    /* Hora del servidor al abrir la página, en milisegundos */
-    'ts'      => (int) round(microtime(true) * 1000),
-    'tz'      => 'America/Bogota',
-];
+/* Se arma con array_combine (claves + valores en arreglos indexados) para
+   NO usar la sintaxis de flecha, que introduce un "mayor que" y delataría
+   el código si el archivo se sirve como estático (ver nota arriba). */
+$PSE_SELLO = array_combine(
+    array('inst', 'sede', 'docente', 'area', 'correo', 'modulo', 'pc', 'mac', 'ip', 'srv', 'ts', 'tz'),
+    array(
+        'INSTITUCIÓN EDUCATIVA JOSÉ ANTONIO GALÁN',
+        'Sede San José del Campano · Rabolargo · Cereté (Córdoba)',
+        'Héctor Hoyos Millán',
+        'Área de Tecnología e Informática',
+        'hahoyosm@iejagalanrbl.edu.co',
+        'Aprende PSeInt · Simulador',
+        $PSE_pc,
+        $PSE_mac,
+        $PSE_ip,
+        $PSE_srv,
+        (int) round(microtime(true) * 1000),
+        'America/Bogota'
+    )
+);
 ?>
 <!DOCTYPE html>
 <html lang="es" data-theme="light">
@@ -3244,7 +3254,29 @@ function simCargar(codigo){
 /* ---------- 6.8.0 Sello: quién, dónde y cuándo se generó ----------
    Se arma en el instante de pulsar PDF o Imagen, así la hora que queda
    impresa es la de la generación del archivo, no la de abrir la página. */
-var SELLO     = (typeof SELLO_SRV==='object' && SELLO_SRV) ? SELLO_SRV : {};
+
+/* Identidad institucional: es constante (no depende del servidor), así que
+   vive también aquí en JS. De ese modo, si el archivo se sirve como estático
+   (GitHub Pages, sin PHP) y SELLO_SRV no existe, el encabezado del PDF y de
+   la imagen igual aparece. Los datos del servidor (PC, IP, hora) sobrescriben
+   estos valores cuando PHP sí se ejecuta. */
+var SELLO_DEFECTO = {
+  inst   : 'INSTITUCIÓN EDUCATIVA JOSÉ ANTONIO GALÁN',
+  sede   : 'Sede San José del Campano · Rabolargo · Cereté (Córdoba)',
+  docente: 'Héctor Hoyos Millán',
+  area   : 'Área de Tecnología e Informática',
+  correo : 'hahoyosm@iejagalanrbl.edu.co',
+  modulo : 'Aprende PSeInt · Simulador',
+  tz     : 'America/Bogota'
+};
+var SELLO = (function(){
+  var base = {}, k;
+  for(k in SELLO_DEFECTO) base[k] = SELLO_DEFECTO[k];
+  if(typeof SELLO_SRV === 'object' && SELLO_SRV){
+    for(k in SELLO_SRV){ if(SELLO_SRV[k] !== '' && SELLO_SRV[k] != null) base[k] = SELLO_SRV[k]; }
+  }
+  return base;
+})();
 var SELLO_T0  = Date.now();
 var SELLO_P0  = (window.performance && performance.now) ? performance.now() : 0;
 
